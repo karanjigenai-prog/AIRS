@@ -154,33 +154,39 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
       }
     }
     
-    const matches: ResourceMatch[] = []
-    
     // Normalize skill names in request and employee data
     const normalizedRequiredSkills = requiredSkills.map(s => ({
       ...s,
       skill: s.skill.trim().toLowerCase()
-    }))
+    }));
     const now = new Date();
-    for (const employee of employees) {
+    let directSkillEmployees: ResourceMatch[] = [];
+    let ready2Weeks: ResourceMatch[] = [];
+    let ready4Weeks: ResourceMatch[] = [];
+    let similarSkillEmployees: ResourceMatch[] = [];
+
+  for (const employee of employees) {
       const normalizedEmployeeSkills = employee.skills.map((empSkill: any) => ({
         ...empSkill,
         skill: empSkill.skill.trim().toLowerCase()
-      }))
+      }));
+      // Check if employee has ALL required skills
+      const hasAllSkills = normalizedRequiredSkills.every(required =>
+        normalizedEmployeeSkills.some(empSkill => empSkill.skill === required.skill)
+      );
       // Calculate match percentage
-      const matchPercentage = calculateSkillMatch(normalizedRequiredSkills, normalizedEmployeeSkills)
+      const matchPercentage = calculateSkillMatch(normalizedRequiredSkills, normalizedEmployeeSkills);
       // Find missing skills
       const missingSkills = normalizedRequiredSkills
         .filter(required => {
           const hasSkill = normalizedEmployeeSkills.some((empSkill: any) => empSkill.skill === required.skill)
           return !hasSkill
         })
-        .map((skill: any) => skill.skill)
+        .map((skill: any) => skill.skill);
 
       // Allocation logic: when will employee be free?
       let soonestFree: Date | null = null;
       if (employee.allocations && employee.allocations.length > 0) {
-        // Find the soonest allocation end date in the future
         for (const alloc of employee.allocations) {
           if (alloc.AllocationEndDate) {
             const end = new Date(alloc.AllocationEndDate);
@@ -191,107 +197,138 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
         }
       }
 
-      // Determine readiness
-      let readinessStatus: 'ready_now' | 'ready_2weeks' | 'ready_4weeks' | 'needs_hiring' = determineReadiness(matchPercentage, missingSkills);
+      let readinessStatus: 'ready_now' | 'ready_2weeks' | 'ready_4weeks' | 'needs_hiring' = 'needs_hiring';
       let estimatedReadyDate: string | undefined = undefined;
 
-      // If not ready now, check if will be free in 2 or 4 weeks
-      if (readinessStatus !== 'ready_now' && soonestFree) {
-        const diffDays = Math.ceil((soonestFree.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays <= 14) {
-          readinessStatus = 'ready_2weeks';
-          estimatedReadyDate = soonestFree.toISOString().split('T')[0];
-        } else if (diffDays <= 28) {
-          readinessStatus = 'ready_4weeks';
-          estimatedReadyDate = soonestFree.toISOString().split('T')[0];
+      if (hasAllSkills) {
+        if (employee.availability === 'Available') {
+          readinessStatus = 'ready_now';
+          directSkillEmployees.push({
+            id: employee.id,
+            name: employee.name,
+            email: employee.email,
+            department: '',
+            role: employee.designation ?? '',
+            matchPercentage,
+            readinessStatus,
+            currentSkills: employee.skills,
+            trainingNeeded: missingSkills,
+            estimatedReadyDate,
+            availability: employee.availability ?? 'Available',
+            experience: '',
+            currentProjects: 0,
+            completedProjects: 0
+          });
+        } else if (soonestFree) {
+          const diffDays = Math.ceil((soonestFree.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays <= 14) {
+            readinessStatus = 'ready_2weeks';
+            estimatedReadyDate = soonestFree.toISOString().split('T')[0];
+            ready2Weeks.push({
+              id: employee.id,
+              name: employee.name,
+              email: employee.email,
+              department: '',
+              role: employee.designation ?? '',
+              matchPercentage,
+              readinessStatus,
+              currentSkills: employee.skills,
+              trainingNeeded: missingSkills,
+              estimatedReadyDate,
+              availability: employee.availability ?? 'Allocated',
+              experience: '',
+              currentProjects: 0,
+              completedProjects: 0
+            });
+          } else if (diffDays <= 28) {
+            readinessStatus = 'ready_4weeks';
+            estimatedReadyDate = soonestFree.toISOString().split('T')[0];
+            ready4Weeks.push({
+              id: employee.id,
+              name: employee.name,
+              email: employee.email,
+              department: '',
+              role: employee.designation ?? '',
+              matchPercentage,
+              readinessStatus,
+              currentSkills: employee.skills,
+              trainingNeeded: missingSkills,
+              estimatedReadyDate,
+              availability: employee.availability ?? 'Allocated',
+              experience: '',
+              currentProjects: 0,
+              completedProjects: 0
+            });
+          }
         }
-      }
-
-      // If not ready by allocation, check if can be trained and ready in 2 or 4 weeks
-      if (readinessStatus !== 'ready_now' && !soonestFree && matchPercentage >= 50) {
-        // If missing skills are trainable, assume can be ready in 2 or 4 weeks
-        if (matchPercentage >= 70 && missingSkills.length <= 2) {
+      } else {
+        // If not direct match, check for similar/related skills (basic similarity: same category or partial match)
+        const hasSimilar = normalizedRequiredSkills.some(required =>
+          normalizedEmployeeSkills.some(empSkill => empSkill.category && empSkill.category === required.category)
+        );
+        if (hasSimilar) {
           readinessStatus = 'ready_2weeks';
           const date = new Date();
           date.setDate(date.getDate() + 14);
           estimatedReadyDate = date.toISOString().split('T')[0];
-        } else if (matchPercentage >= 50 && missingSkills.length <= 4) {
-          readinessStatus = 'ready_4weeks';
-          const date = new Date();
-          date.setDate(date.getDate() + 28);
-          estimatedReadyDate = date.toISOString().split('T')[0];
+          similarSkillEmployees.push({
+            id: employee.id,
+            name: employee.name,
+            email: employee.email,
+            department: '',
+            role: employee.designation ?? '',
+            matchPercentage,
+            readinessStatus,
+            currentSkills: employee.skills,
+            trainingNeeded: missingSkills,
+            estimatedReadyDate,
+            availability: employee.availability ?? 'Available',
+            experience: '',
+            currentProjects: 0,
+            completedProjects: 0
+          });
         }
       }
+    }
 
-      const match: ResourceMatch = {
-        id: employee.id,
-        name: employee.name,
-        email: employee.email,
-        department: '', // Not available in new structure
-        role: employee.designation ?? '',
-        matchPercentage,
-        readinessStatus,
-        currentSkills: employee.skills,
-        trainingNeeded: missingSkills,
-        estimatedReadyDate,
-        availability: employee.availability ?? 'Available',
-        experience: '', // Not available in new structure
-        currentProjects: 0, // Not available in new structure
-        completedProjects: 0 // Not available in new structure
-      }
-      matches.push(match)
+    // If any direct skill employees, show them in the correct readiness buckets
+    if (directSkillEmployees.length > 0 || ready2Weeks.length > 0 || ready4Weeks.length > 0) {
+      return {
+        requestId,
+        readyNow: directSkillEmployees,
+        ready2Weeks,
+        ready4Weeks,
+        externalHireNeeded: Math.max(0, teamSize - (directSkillEmployees.length + ready2Weeks.length + ready4Weeks.length)),
+        recommendedActions: [
+          'Team can be formed with available and soon-to-be-available resources',
+          'Schedule interviews with top candidates',
+          'Prepare project onboarding materials'
+        ],
+        confidenceScore: 100,
+        analysisTime: new Date().toISOString(),
+        lastUpdated: new Date().toISOString()
+      };
     }
-    
-    // Sort by match percentage
-    matches.sort((a, b) => b.matchPercentage - a.matchPercentage)
-    
-  // Categorize by readiness (show all employees in each category)
-  const readyNow = matches.filter(m => m.readinessStatus === 'ready_now')
-  const ready2Weeks = matches.filter(m => m.readinessStatus === 'ready_2weeks')
-  const ready4Weeks = matches.filter(m => m.readinessStatus === 'ready_4weeks')
-  // Calculate external hire need based on total available
-  const totalAvailable = readyNow.length + ready2Weeks.length + ready4Weeks.length
-  const externalHireNeeded = Math.max(0, teamSize - totalAvailable)
-    
-    // Generate recommended actions
-    const recommendedActions = []
-    if (readyNow.length >= teamSize) {
-      recommendedActions.push('Team can be formed immediately with available resources')
-      recommendedActions.push('Schedule interviews with top candidates')
-      recommendedActions.push('Prepare project onboarding materials')
-    } else if (readyNow.length + ready2Weeks.length >= teamSize) {
-      recommendedActions.push('Start training programs for 2-week ready candidates')
-      recommendedActions.push('Begin interviews with immediately available candidates')
-      recommendedActions.push('Schedule training for skill gaps')
-    } else if (totalAvailable >= teamSize) {
-      recommendedActions.push('Implement comprehensive training program')
-      recommendedActions.push('Consider extended project timeline')
-      recommendedActions.push('Prioritize critical skills training')
-    } else {
-      recommendedActions.push('Begin external hiring process immediately')
-      recommendedActions.push('Consider augmenting team with contractors')
-      recommendedActions.push('Review project scope and timeline')
-    }
-    
-    // Calculate confidence score
-    const immediateReadiness = readyNow.length / teamSize
-    const confidenceScore = Math.round(
-      (immediateReadiness * 0.5 + (totalAvailable / teamSize) * 0.3 + (matches.length > 0 ? 0.2 : 0)) * 100
-    )
-    
-    const result: AnalysisResult = {
+
+    // Otherwise, show similar/trainable employees as ready in 2 weeks
+    return {
       requestId,
-      readyNow,
-      ready2Weeks,
-      ready4Weeks,
-      externalHireNeeded,
-      recommendedActions,
-      confidenceScore,
+      readyNow: [],
+      ready2Weeks: similarSkillEmployees,
+      ready4Weeks: [],
+      externalHireNeeded: Math.max(0, teamSize - similarSkillEmployees.length),
+      recommendedActions: [
+        'Start training programs for 2-week ready candidates',
+        'Begin interviews with trainable candidates',
+        'Schedule training for skill gaps'
+      ],
+      confidenceScore: similarSkillEmployees.length > 0 ? 70 : 0,
       analysisTime: new Date().toISOString(),
       lastUpdated: new Date().toISOString()
-    }
+    };
+  
     
-    return result
+    // (Old matches/readyNow/ready2Weeks/ready4Weeks code removed; only new logic is used above)
   } catch (error) {
     console.error('Analysis error:', error)
     throw error

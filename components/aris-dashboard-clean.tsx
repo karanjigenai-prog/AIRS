@@ -661,9 +661,9 @@ export function ARISEnhancedDashboard() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="beginner">Beginner</SelectItem>
-                        <SelectItem value="intermediate">Intermediate</SelectItem>
-                        <SelectItem value="expert">Expert</SelectItem>
+                        <SelectItem value="beginner">Beginner(0-2 years)</SelectItem>
+                        <SelectItem value="intermediate">Intermediate(3-5 years)</SelectItem>
+                        <SelectItem value="expert">Expert(5+ years)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
