@@ -53,7 +53,12 @@ import {
 } from "lucide-react"
 
 // Data fetcher function
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+const fetcher = (url: string) => fetch(url).then((r) => {
+  if (!r.ok) {
+    throw new Error(`HTTP error! status: ${r.status}`)
+  }
+  return r.json()
+})
 
 // Type definitions
 interface SkillRequirement {
@@ -108,6 +113,7 @@ export function ARISEnhancedDashboard() {
       setCareerFile(null);
     }
   };
+  
   // Show eligible employees directly in Career Path Modeling tab
   // Always show all employees matching skills/designation from database
   const [eligibleEmployees, setEligibleEmployees] = React.useState<PromotionCandidate[]>([]);
@@ -121,12 +127,21 @@ export function ARISEnhancedDashboard() {
       if (reqDesignation && emp.role && emp.role.toLowerCase() !== reqDesignation.toLowerCase()) return false;
       // Match at least one skill
       const reqSkills = requirements.map(r => r.skill?.toLowerCase()).filter(Boolean);
-  const empSkills = (emp.skills || []).map(s => s.skill?.toLowerCase());
+      const empSkills = (emp.skills || []).map(s => s.skill?.toLowerCase());
       return reqSkills.some(skill => empSkills.includes(skill));
     });
   };
+
   const uploadCareerRequirements = async () => {
-    if (!careerFile) return;
+    if (!careerFile) {
+      toast({
+        title: "No File Selected",
+        description: "Please select a file to upload",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     try {
       const text = await careerFile.text();
       const Papa = (await import('papaparse')).default;
@@ -170,8 +185,13 @@ export function ARISEnhancedDashboard() {
       } else {
         toast({ title: 'Analysis Failed', description: result.error || 'Failed to analyze requirements', variant: 'destructive' });
       }
-    } catch (err) {
-      toast({ title: 'Error', description: 'Failed to process uploaded file', variant: 'destructive' });
+    } catch (error) {
+      console.error('File upload error:', error);
+      toast({
+        title: "Upload Failed",
+        description: error instanceof Error ? error.message : "Failed to process file",
+        variant: "destructive"
+      });
     }
   };
   // Hardcoded manager email
@@ -188,7 +208,12 @@ export function ARISEnhancedDashboard() {
     if (activeTab === 'trends') {
       setTrendsLoading(true);
       fetch('/api/trends?topic=industry')
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`)
+          }
+          return res.json()
+        })
         .then((data) => {
           setTrends(data.articles || []);
           setTrendsError('');
@@ -311,6 +336,10 @@ export function ARISEnhancedDashboard() {
         body: JSON.stringify(newRequest)
       })
 
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
       const result = await response.json()
 
       if (result.success) {
@@ -342,9 +371,10 @@ export function ARISEnhancedDashboard() {
         })
       }
     } catch (error) {
+      console.error('Error submitting skill request:', error)
       toast({
         title: "Error",
-        description: "Failed to submit request",
+        description: `Failed to submit request: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive"
       })
     }
@@ -375,6 +405,10 @@ export function ARISEnhancedDashboard() {
         })
       })
 
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
       const result = await response.json()
 
       if (result.success) {
@@ -403,6 +437,41 @@ export function ARISEnhancedDashboard() {
     }
   }
 
+  // Send training notifications
+  const sendTrainingNotifications = async (request: SkillRequest) => {
+    try {
+      const response = await fetch('/api/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skillRequest: request,
+          action: 'send_training_notifications'
+        })
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        toast({
+          title: "Training Notifications Sent",
+          description: `Sent ${result.notificationsSent} training notifications to employees who need skill upgrades`
+        })
+      } else {
+        toast({
+          title: "Notification Failed", 
+          description: result.error || "Failed to send training notifications",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to send training notifications",
+        variant: "destructive"
+      })
+    }
+  }
+
   // Send email
   const sendEmail = async () => {
     if (!emailData.to || !emailData.subject || !emailData.message) {
@@ -421,6 +490,10 @@ export function ARISEnhancedDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(emailData)
       })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
 
       const result = await response.json()
 
@@ -660,18 +733,20 @@ export function ARISEnhancedDashboard() {
                   <label className="text-sm font-medium">Duration (weeks)</label>
                   <Input
                     type="number"
-                    value={newRequest.projectDurationWeeks}
-                    onChange={(e) => setNewRequest({...newRequest, projectDurationWeeks: parseInt(e.target.value)})}
+                    value={newRequest.projectDurationWeeks || ''}
+                    onChange={(e) => setNewRequest({...newRequest, projectDurationWeeks: parseInt(e.target.value) || 12})}
                     min="1"
+                    placeholder="12"
                   />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Team Size</label>
                   <Input
                     type="number"
-                    value={newRequest.teamSizeRequired}
-                    onChange={(e) => setNewRequest({...newRequest, teamSizeRequired: parseInt(e.target.value)})}
+                    value={newRequest.teamSizeRequired || ''}
+                    onChange={(e) => setNewRequest({...newRequest, teamSizeRequired: parseInt(e.target.value) || 3})}
                     min="1"
+                    placeholder="3"
                   />
                 </div>
                 <div>
@@ -843,6 +918,17 @@ export function ARISEnhancedDashboard() {
                             Run AI Analysis
                           </>
                         )}
+                      </Button>
+                      
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => sendTrainingNotifications(request)}
+                        disabled={employees.length === 0}
+                        title="Send training notifications to employees who need to level up their skills"
+                      >
+                        <Mail className="h-4 w-4 mr-2" />
+                        Send Training Notifications
                       </Button>
                       {employees.length === 0 && (
                         <Badge variant="outline" className="text-xs text-muted-foreground">
@@ -1018,6 +1104,11 @@ export function ARISEnhancedDashboard() {
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ to: resource.email, subject, message })
                                       });
+                                      
+                                      if (!response.ok) {
+                                        throw new Error(`HTTP error! status: ${response.status}`)
+                                      }
+                                      
                                       const result = await response.json();
                                       if (result.success) {
                                         alert('Shortlist email sent to employee!');
@@ -1408,6 +1499,77 @@ export function ARISEnhancedDashboard() {
                           <div className="text-xs text-muted-foreground">Availability: {emp.availability}</div>
                           <div className="text-xs text-muted-foreground">Experience: {emp.experience}</div>
                           <div className="text-xs text-muted-foreground">Projects: {emp.currentProjects} active, {emp.completedProjects} completed</div>
+                          <div className="text-xs text-muted-foreground">Performance: {emp.performanceRating || 'N/A'}</div>
+                          <div className="text-xs text-muted-foreground">Completed Training: {emp.completedTraining?.join(', ') || 'None'}</div>
+                          {/* HR Actions */}
+                          <div className="flex gap-2 mt-2">
+                            <Button size="sm" variant="outline" onClick={async () => {
+                              // Send shortlist email to employee
+                              const subject = `Congratulations! You are shortlisted for ${emp.promotionRole || 'promotion/upskilling'}`;
+                              const message = `Dear ${emp.name},\n\nYou have been shortlisted for ${emp.promotionRole || 'promotion/upskilling'} based on your profile. Please review the attached training plan.\n\nBest regards,\nHR Team`;
+                              try {
+                                await fetch('/api/email', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ to: emp.email, subject, message })
+                                });
+                                toast({ title: 'Shortlist Email Sent', description: `Shortlist email sent to ${emp.name}` });
+                              } catch {
+                                toast({ title: 'Error', description: 'Failed to send email', variant: 'destructive' });
+                              }
+                            }}>
+                              <Send className="h-4 w-4 mr-1" />
+                              Send Shortlist Email
+                            </Button>
+                            <Button size="sm" variant="secondary" onClick={async () => {
+                              if (!emp.email) {
+                                toast({ title: 'Error', description: 'Employee email not available', variant: 'destructive' });
+                                return;
+                              }
+                              
+                              // Generate training plan based on employee skills
+                              const trainingPlan = emp.skills?.map((skillObj: any) => {
+                                const training = getBestTrainingResourceForSkill(skillObj.skill);
+                                return `${skillObj.skill}: ${training.name} (${training.provider}) - ${training.url}`;
+                              }).join('\n') || 'Custom training plan will be provided based on role requirements.';
+                              
+                              const subject = `Training Plan - ${emp.promotionRole || 'Skill Development'}`;
+                              const message = `Dear ${emp.name},\n\nHere is your personalized training plan:\n\n${trainingPlan}\n\nPlease review and start with the recommended courses. Contact HR for any questions.\n\nBest regards,\nHR Team`;
+                              
+                              try {
+                                const response = await fetch('/api/email', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ 
+                                    to: emp.email, 
+                                    subject, 
+                                    message,
+                                    type: 'training_plan',
+                                    data: {
+                                      employeeName: emp.name,
+                                      trainingPlan: trainingPlan,
+                                      hrTeamName: 'HR Team'
+                                    }
+                                  })
+                                });
+                                toast({ title: 'Training Plan Sent', description: `Training plan sent to ${emp.name}` });
+                              } catch {
+                                toast({ title: 'Error', description: 'Failed to send training plan', variant: 'destructive' });
+                              }
+                            }}>
+                              <FileText className="h-4 w-4 mr-1" />
+                              Attach Training Plan
+                            </Button>
+                          </div>
+                          {/* Track Acceptance & Progress */}
+                          <div className="mt-2">
+                            <span className="text-xs font-medium">Acceptance Status:</span>
+                            <Badge variant="outline" className="ml-2 text-xs">{emp.acceptanceStatus || 'Pending'}</Badge>
+                          </div>
+                          <div className="mt-1">
+                            <span className="text-xs font-medium">Progress:</span>
+                            <Progress value={emp.trainingProgress || 0} className="w-32 h-2 ml-2" />
+                          </div>
                         </CardContent>
                       </Card>
                     ))}
