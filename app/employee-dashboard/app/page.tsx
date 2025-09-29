@@ -152,13 +152,13 @@ export default function EmployeeDashboard() {
 
     switch (activeSection) {
       case "competency":
-        return <PersonalCompetency employee={employee} />
+        return <PersonalCompetency employeeData={employee} />
       case "training":
-        return <TrainingCenter employee={employee} />
+        return <TrainingCenter employeeData={employee} />
       case "career":
-        return <CareerPathUpdates employee={employee} />
+        return <CareerPathUpdates employeeData={employee} />
       case "insights":
-          return <TrendsInsights />
+          return <TrendsInsights employeeData={employee} />
       case "admin":
         return isAdminMode ? <AdminPanel /> : <div className="text-center p-8 text-muted-foreground">Access Denied</div>
       default:

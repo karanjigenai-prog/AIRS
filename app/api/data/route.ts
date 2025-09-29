@@ -16,7 +16,7 @@ import { employeeStorage } from "@/lib/employee-storage"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 
 /**
- * Production Employee Data - Gen AI Team
+ * Production Employee Data - Gen AI Team (Sorted Alphabetically)
  * Contains employees with real email addresses and proper skill level classifications
  * All employees are Gen AI developers with Sheeba and Sowmya as seniors
  */
@@ -43,24 +43,26 @@ const employees = [
     ]
   },
   {
-    id: 'emp2',
-    name: 'Sumith R Naik',
-    email: 'sumithrnaik@karanji.com',
+    id: 'emp4',
+    name: 'Grifith Sheeba Menon',
+    email: 'sheebam@karanji.com',
     department: 'Gen AI Development',
-    role: 'Gen AI Developer',
-    location: 'Mangalore, India',
+    role: 'Senior Gen AI Developer',
+    location: 'Kochi, India',
     availability: 'Available',
-    experience: '2+ years',
-    phone: '+91-9876543211',
-    currentProjects: 1,
-    completedProjects: 6,
+    experience: '6+ years',
+    phone: '+91-9876543213',
+    currentProjects: 3,
+    completedProjects: 18,
     skills: [
+      { skill: 'Machine Learning', level: 'expert' },
+      { skill: 'Deep Learning', level: 'expert' },
       { skill: 'Python', level: 'expert' },
-      { skill: 'Machine Learning', level: 'intermediate' },
-      { skill: 'Computer Vision', level: 'intermediate' },
-      { skill: 'PyTorch', level: 'intermediate' },
-      { skill: 'AI/ML', level: 'intermediate' },
-      { skill: 'Data Science', level: 'beginner' }
+      { skill: 'TensorFlow', level: 'expert' },
+      { skill: 'PyTorch', level: 'expert' },
+      { skill: 'AI/ML', level: 'expert' },
+      { skill: 'Natural Language Processing', level: 'expert' },
+      { skill: 'Computer Vision', level: 'expert' }
     ]
   },
   {
@@ -85,29 +87,6 @@ const employees = [
     ]
   },
   {
-    id: 'emp4',
-    name: 'Grifith Sheeba Menon',
-    email: 'sheebam@karanji.com',
-    department: 'Gen AI Development',
-    role: 'Senior Gen AI Developer',
-    location: 'Kochi, India',
-    availability: 'Available',
-    experience: '6+ years',
-    phone: '+91-9876543213',
-    currentProjects: 3,
-    completedProjects: 18,
-    skills: [
-      { skill: 'Machine Learning', level: 'expert' },
-      { skill: 'Deep Learning', level: 'expert' },
-      { skill: 'Python', level: 'expert' },
-      { skill: 'TensorFlow', level: 'expert' },
-      { skill: 'PyTorch', level: 'expert' },
-      { skill: 'AI/ML', level: 'expert' },
-      { skill: 'Natural Language Processing', level: 'expert' },
-      { skill: 'Computer Vision', level: 'expert' }
-    ]
-  },
-  {
     id: 'emp5',
     name: 'Sowmyashree',
     email: 'Athulyaroy@karanji.com',
@@ -128,6 +107,27 @@ const employees = [
       { skill: 'Generative AI', level: 'expert' },
       { skill: 'LLM Development', level: 'expert' },
       { skill: 'Transformer Models', level: 'intermediate' }
+    ]
+  },
+  {
+    id: 'emp2',
+    name: 'Sumith R Naik',
+    email: 'sumithrnaik@karanji.com',
+    department: 'Gen AI Development',
+    role: 'Gen AI Developer',
+    location: 'Mangalore, India',
+    availability: 'Available',
+    experience: '2+ years',
+    phone: '+91-9876543211',
+    currentProjects: 1,
+    completedProjects: 6,
+    skills: [
+      { skill: 'Python', level: 'expert' },
+      { skill: 'Machine Learning', level: 'intermediate' },
+      { skill: 'Computer Vision', level: 'intermediate' },
+      { skill: 'PyTorch', level: 'intermediate' },
+      { skill: 'AI/ML', level: 'intermediate' },
+      { skill: 'Data Science', level: 'beginner' }
     ]
   }
 ]
@@ -205,61 +205,90 @@ export async function GET() {
     // Simulate some processing time for realism
     await new Promise(resolve => setTimeout(resolve, 100))
 
-    // Fetch employee master data
-    const { data: master, error: masterError } = await supabaseAdmin
-      .schema('public')
-      .from('employee_master')
-      .select('*')
-    if (masterError) {
-      return NextResponse.json({ success: false, error: masterError.message }, { status: 500 })
-    }
-
-    // Fetch all skills for all employees
-    const { data: skills, error: skillsError } = await supabaseAdmin
-      .schema('public')
-      .from('skills_master')
-      .select('*')
-    if (skillsError) {
-      return NextResponse.json({ success: false, error: skillsError.message }, { status: 500 })
-    }
-
-    // Fetch all allocations for all employees
-    const { data: allocations, error: allocError } = await supabaseAdmin
-      .schema('public')
-      .from('employee_allocation')
-      .select('*')
-    if (allocError) {
-      return NextResponse.json({ success: false, error: allocError.message }, { status: 500 })
-    }
-
-    // Combine all data into employee objects
-    const employeesToReturn = master.map(emp => {
-      const empSkills = skills.filter(s => s.EmployeeNumber === emp.EmployeeNumber).map(s => ({
-        skill: s.SkillName,
-        level: s.ProficiencyLevel,
-        category: s.SkillCategory,
-        certification: s.CertificationLevel
-      }))
-      const empAlloc = allocations.filter(a => a.EmployeeNumber === emp.EmployeeNumber)
-      // You can further process empAlloc to determine availability, current project, etc.
-      return {
-        id: emp.EmployeeNumber,
-        name: emp.EmployeeName,
-        email: emp.Email,
-        designation: emp.Designation,
-        jobBand: emp.JobBand,
-        skills: empSkills,
-        allocations: empAlloc,
-        // Example: available if no current allocation or allocation end date is in the past
-        availability: empAlloc.length === 0 || empAlloc.every(a => a.AllocationEndDate && new Date(a.AllocationEndDate) < new Date()) ? 'Available' : 'Allocated',
+    try {
+      // Try to fetch employee master data from Supabase
+      const { data: master, error: masterError } = await supabaseAdmin
+        .schema('public')
+        .from('employee_master')
+        .select('*')
+      
+      if (masterError) {
+        throw new Error('Supabase connection failed, using fallback data')
       }
-    })
 
-    return NextResponse.json({
-      success: true,
-      employees: employeesToReturn,
-      // ...existing programs, analytics, etc. if needed
-    })
+      // Fetch all skills for all employees
+      const { data: skills, error: skillsError } = await supabaseAdmin
+        .schema('public')
+        .from('skills_master')
+        .select('*')
+      if (skillsError) {
+        throw new Error('Skills data fetch failed')
+      }
+
+      // Fetch all allocations for all employees
+      const { data: allocations, error: allocError } = await supabaseAdmin
+        .schema('public')
+        .from('employee_allocation')
+        .select('*')
+      if (allocError) {
+        throw new Error('Allocations data fetch failed')
+      }
+
+      // Combine all data into employee objects
+      const employeesToReturn = master.map(emp => {
+        const empSkills = skills.filter(s => s.EmployeeNumber === emp.EmployeeNumber).map(s => ({
+          skill: s.SkillName,
+          level: s.ProficiencyLevel,
+          category: s.SkillCategory,
+          certification: s.CertificationLevel
+        }))
+        const empAlloc = allocations.filter(a => a.EmployeeNumber === emp.EmployeeNumber)
+        // You can further process empAlloc to determine availability, current project, etc.
+        return {
+          id: emp.EmployeeNumber,
+          name: emp.EmployeeName,
+          email: emp.Email,
+          designation: emp.Designation,
+          jobBand: emp.JobBand,
+          skills: empSkills,
+          allocations: empAlloc,
+          role: emp.Designation,
+          department: emp.Department || 'Gen AI Development',
+          location: emp.Location || 'India',
+          experience: emp.Experience || '2+ years',
+          phone: emp.Phone,
+          currentProjects: empAlloc.filter(a => !a.AllocationEndDate || new Date(a.AllocationEndDate) > new Date()).length,
+          completedProjects: empAlloc.filter(a => a.AllocationEndDate && new Date(a.AllocationEndDate) <= new Date()).length,
+          // Example: available if no current allocation or allocation end date is in the past
+          availability: empAlloc.length === 0 || empAlloc.every(a => a.AllocationEndDate && new Date(a.AllocationEndDate) < new Date()) ? 'Available' : 'Allocated',
+        }
+      })
+      .filter(emp => emp.skills && emp.skills.length > 0) // Filter out employees without skills for UI display
+      .sort((a, b) => a.name.localeCompare(b.name)) // Sort employees alphabetically by name
+
+      return NextResponse.json({
+        success: true,
+        employees: employeesToReturn,
+        programs,
+        analytics,
+        dataSource: 'supabase'
+      })
+    } catch (supabaseError) {
+      console.warn('Supabase data unavailable, using fallback data:', supabaseError)
+      
+      // Use fallback data, apply same filtering and sorting logic
+      const fallbackEmployees = employees
+        .filter(emp => emp.skills && emp.skills.length > 0) // Filter out employees without skills for UI display
+        .sort((a, b) => a.name.localeCompare(b.name)) // Sort employees alphabetically by name
+      
+      return NextResponse.json({
+        success: true,
+        employees: fallbackEmployees,
+        programs,
+        analytics,
+        dataSource: 'fallback'
+      })
+    }
   } catch (error) {
     console.error('Error fetching data:', error)
     return NextResponse.json({ 
