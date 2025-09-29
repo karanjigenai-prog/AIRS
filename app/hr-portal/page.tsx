@@ -58,3 +58,58 @@ export default function HRPortal() {
     </main>
   );
 }
+
+// Job band requirements matrix and validation (TypeScript fixed)
+type Skill = { skill: string; category: string; level: string };
+type JobBandMatrix = {
+  [band: string]: {
+    [category: string]: { [level: string]: number }
+  }
+};
+
+const jobBandMatrix: JobBandMatrix = {
+  D4: {
+    technical: { expert: 2 },
+    soft: { expert: 2 },
+    language: { expert: 2 }
+  },
+  D3: {
+    technical: { intermediate: 2 },
+    soft: { intermediate: 2 },
+    language: { intermediate: 2 }
+  }
+  // Add more bands as needed
+};
+
+function validateEmployeeForBand(employeeSkills: Skill[], band: keyof typeof jobBandMatrix) {
+  const matrix = jobBandMatrix[band];
+  const result: { meetsRequirements: boolean; gaps: string[] } = { meetsRequirements: true, gaps: [] };
+  for (const category in matrix) {
+    for (const level in matrix[category]) {
+      const requiredCount = matrix[category][level];
+      const actualCount = employeeSkills.filter(
+        (s: Skill) => s.category === category && s.level === level
+      ).length;
+      if (actualCount < requiredCount) {
+        result.meetsRequirements = false;
+        result.gaps.push(
+          `Needs ${requiredCount - actualCount} ${level} skill(s) in ${category}`
+        );
+      }
+    }
+  }
+  return result;
+}
+
+// Example usage:
+// const employeeSkills: Skill[] = [
+//   { skill: 'Java', category: 'technical', level: 'expert' },
+//   { skill: 'Python', category: 'technical', level: 'expert' },
+//   { skill: 'Communication', category: 'soft', level: 'expert' },
+//   { skill: 'Teamwork', category: 'soft', level: 'intermediate' },
+//   { skill: 'English', category: 'language', level: 'expert' },
+//   { skill: 'French', category: 'language', level: 'intermediate' }
+// ];
+// const validation = validateEmployeeForBand(employeeSkills, 'D4');
+// console.log(validation);
+// Output: { meetsRequirements: false, gaps: [ 'Needs 1 expert skill(s) in soft', 'Needs 1 expert skill(s) in language' ] }
