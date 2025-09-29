@@ -53,7 +53,12 @@ import {
 } from "lucide-react"
 
 // Data fetcher function
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+const fetcher = (url: string) => fetch(url).then((r) => {
+  if (!r.ok) {
+    throw new Error(`HTTP error! status: ${r.status}`)
+  }
+  return r.json()
+})
 
 // Type definitions
 interface SkillRequirement {
@@ -108,10 +113,86 @@ export function ARISEnhancedDashboard() {
       setCareerFile(null);
     }
   };
-  const uploadCareerRequirements = () => {
-    if (!careerFile) return;
-    // TODO: Parse and process the file for AI analysis
-    alert(`File '${careerFile.name}' uploaded! (Parsing not yet implemented)`);
+  
+  // Show eligible employees directly in Career Path Modeling tab
+  // Always show all employees matching skills/designation from database
+  const [eligibleEmployees, setEligibleEmployees] = React.useState<PromotionCandidate[]>([]);
+
+  // Helper to filter employees by uploaded requirements
+  const filterEmployeesByRequirements = (requirements: any[], employees: PromotionCandidate[]) => {
+    if (!requirements || requirements.length === 0) return employees;
+    return employees.filter(emp => {
+      // Match designation if present
+      const reqDesignation = requirements.find(r => r.role || r.designation)?.role || requirements.find(r => r.role || r.designation)?.designation;
+      if (reqDesignation && emp.role && emp.role.toLowerCase() !== reqDesignation.toLowerCase()) return false;
+      // Match at least one skill
+      const reqSkills = requirements.map(r => r.skill?.toLowerCase()).filter(Boolean);
+      const empSkills = (emp.skills || []).map(s => s.skill?.toLowerCase());
+      return reqSkills.some(skill => empSkills.includes(skill));
+    });
+  };
+
+  const uploadCareerRequirements = async () => {
+    if (!careerFile) {
+      toast({
+        title: "No File Selected",
+        description: "Please select a file to upload",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    try {
+      const text = await careerFile.text();
+      const Papa = (await import('papaparse')).default;
+      const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+      if (!parsed.data || parsed.data.length === 0) {
+        toast({ title: 'Error', description: 'No data found in uploaded file', variant: 'destructive' });
+        return;
+      }
+      const columns = Object.keys(parsed.data[0] as object);
+      const skillCol = columns.find(c => c.toLowerCase().includes('skill')) || columns[0];
+      const levelCol = columns.find(c => c.toLowerCase().includes('level'));
+      const certCol = columns.find(c => c.toLowerCase().includes('cert'));
+      const jobBandCol = columns.find(c => c.toLowerCase().includes('band'));
+      const requirements = parsed.data.map((row: any) => ({
+        skill: row[skillCol]?.trim(),
+        level: levelCol ? row[levelCol]?.trim() : undefined,
+        certification: certCol ? row[certCol]?.trim() : undefined,
+        jobBand: jobBandCol ? row[jobBandCol]?.trim() : undefined
+      })).filter((r: any) => r.skill);
+      if (requirements.length === 0) {
+        toast({ title: 'Error', description: 'No valid skill requirements found in file', variant: 'destructive' });
+        return;
+      }
+      // Call backend API to analyze employees against requirements
+      const response = await fetch('/api/ai-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: `career-upload-${Date.now()}`,
+          skills: requirements,
+          teamSize: 1
+        })
+      });
+      const result = await response.json();
+      if (result.success && result.analysis) {
+        // Use all employees from database, filter by requirements
+        const allEmployees = employeeData?.employees || [];
+        const eligible = filterEmployeesByRequirements(requirements, allEmployees);
+        setEligibleEmployees(eligible);
+        toast({ title: 'Analysis Complete', description: `Found ${eligible.length} eligible employees.` });
+      } else {
+        toast({ title: 'Analysis Failed', description: result.error || 'Failed to analyze requirements', variant: 'destructive' });
+      }
+    } catch (error) {
+      console.error('File upload error:', error);
+      toast({
+        title: "Upload Failed",
+        description: error instanceof Error ? error.message : "Failed to process file",
+        variant: "destructive"
+      });
+    }
   };
   // Hardcoded manager email
   const managerEmail = 'karanjibuddy@gmail.com';
@@ -127,7 +208,12 @@ export function ARISEnhancedDashboard() {
     if (activeTab === 'trends') {
       setTrendsLoading(true);
       fetch('/api/trends?topic=industry')
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`)
+          }
+          return res.json()
+        })
         .then((data) => {
           setTrends(data.articles || []);
           setTrendsError('');
@@ -250,6 +336,10 @@ export function ARISEnhancedDashboard() {
         body: JSON.stringify(newRequest)
       })
 
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
       const result = await response.json()
 
       if (result.success) {
@@ -281,9 +371,10 @@ export function ARISEnhancedDashboard() {
         })
       }
     } catch (error) {
+      console.error('Error submitting skill request:', error)
       toast({
         title: "Error",
-        description: "Failed to submit request",
+        description: `Failed to submit request: ${error instanceof Error ? error.message : 'Unknown error'}`,
         variant: "destructive"
       })
     }
@@ -314,6 +405,10 @@ export function ARISEnhancedDashboard() {
         })
       })
 
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
       const result = await response.json()
 
       if (result.success) {
@@ -342,6 +437,41 @@ export function ARISEnhancedDashboard() {
     }
   }
 
+  // Send training notifications
+  const sendTrainingNotifications = async (request: SkillRequest) => {
+    try {
+      const response = await fetch('/api/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skillRequest: request,
+          action: 'send_training_notifications'
+        })
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        toast({
+          title: "Training Notifications Sent",
+          description: `Sent ${result.notificationsSent} training notifications to employees who need skill upgrades`
+        })
+      } else {
+        toast({
+          title: "Notification Failed", 
+          description: result.error || "Failed to send training notifications",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to send training notifications",
+        variant: "destructive"
+      })
+    }
+  }
+
   // Send email
   const sendEmail = async () => {
     if (!emailData.to || !emailData.subject || !emailData.message) {
@@ -360,6 +490,10 @@ export function ARISEnhancedDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(emailData)
       })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
 
       const result = await response.json()
 
@@ -599,18 +733,20 @@ export function ARISEnhancedDashboard() {
                   <label className="text-sm font-medium">Duration (weeks)</label>
                   <Input
                     type="number"
-                    value={newRequest.projectDurationWeeks}
-                    onChange={(e) => setNewRequest({...newRequest, projectDurationWeeks: parseInt(e.target.value)})}
+                    value={newRequest.projectDurationWeeks || ''}
+                    onChange={(e) => setNewRequest({...newRequest, projectDurationWeeks: parseInt(e.target.value) || 12})}
                     min="1"
+                    placeholder="12"
                   />
                 </div>
                 <div>
                   <label className="text-sm font-medium">Team Size</label>
                   <Input
                     type="number"
-                    value={newRequest.teamSizeRequired}
-                    onChange={(e) => setNewRequest({...newRequest, teamSizeRequired: parseInt(e.target.value)})}
+                    value={newRequest.teamSizeRequired || ''}
+                    onChange={(e) => setNewRequest({...newRequest, teamSizeRequired: parseInt(e.target.value) || 3})}
                     min="1"
+                    placeholder="3"
                   />
                 </div>
                 <div>
@@ -782,6 +918,17 @@ export function ARISEnhancedDashboard() {
                             Run AI Analysis
                           </>
                         )}
+                      </Button>
+                      
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => sendTrainingNotifications(request)}
+                        disabled={employees.length === 0}
+                        title="Send training notifications to employees who need to level up their skills"
+                      >
+                        <Mail className="h-4 w-4 mr-2" />
+                        Send Training Notifications
                       </Button>
                       {employees.length === 0 && (
                         <Badge variant="outline" className="text-xs text-muted-foreground">
@@ -957,6 +1104,11 @@ export function ARISEnhancedDashboard() {
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({ to: resource.email, subject, message })
                                       });
+                                      
+                                      if (!response.ok) {
+                                        throw new Error(`HTTP error! status: ${response.status}`)
+                                      }
+                                      
                                       const result = await response.json();
                                       if (result.success) {
                                         alert('Shortlist email sent to employee!');
@@ -1314,31 +1466,39 @@ export function ARISEnhancedDashboard() {
                 )}
               </div>
 
-              {/* AI Analysis Results */}
+              {/* Eligible Employees Results */}
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Promotion & Upskilling Candidates</h3>
-                {/* Simulated AI output: Replace with real API integration */}
-                {employees.length > 0 ? (
+                <h3 className="text-lg font-semibold">Eligible Employees Matching Job Role Requirements</h3>
+                {eligibleEmployees.length > 0 ? (
                   <div className="grid gap-4">
-                    {employees.filter((emp: PromotionCandidate) => emp.isPromotionCandidate).map((emp: PromotionCandidate, idx: number) => (
+                    {eligibleEmployees.map((emp: any, idx: number) => (
                       <Card key={emp.id} className="border-green-300">
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2">
                             <CheckCircle className="h-5 w-5 text-green-600" />
-                            {emp.name} <span className="text-xs text-muted-foreground">({emp.role})</span>
+                            <span className="font-bold">{emp.name}</span>
+                            <span className="text-xs text-muted-foreground">{emp.role}</span>
                           </CardTitle>
-                          <p className="text-xs text-muted-foreground">Ready for: {emp.promotionRole || 'Promotion/Upskilling'}</p>
                         </CardHeader>
                         <CardContent className="space-y-2">
+                          <div className="flex flex-wrap gap-2 items-center">
+                            <span className="text-xs font-medium">Email:</span>
+                            <span className="text-xs">{emp.email}</span>
+                            <span className="text-xs font-medium">Department:</span>
+                            <span className="text-xs">{emp.department}</span>
+                          </div>
                           <div>
                             <span className="font-medium text-xs">Skills:</span>
                             <div className="flex flex-wrap gap-1 mt-1">
-                              {emp.skills.map((skill, i) => (
+                              {(emp.skills || []).map((skill: any, i: number) => (
                                 <Badge key={i} variant="outline" className="text-xs">{skill.skill} ({skill.level})</Badge>
                               ))}
                             </div>
                           </div>
                           <div className="text-xs text-muted-foreground">Certifications: {emp.certifications?.join(', ') || 'None'}</div>
+                          <div className="text-xs text-muted-foreground">Availability: {emp.availability}</div>
+                          <div className="text-xs text-muted-foreground">Experience: {emp.experience}</div>
+                          <div className="text-xs text-muted-foreground">Projects: {emp.currentProjects} active, {emp.completedProjects} completed</div>
                           <div className="text-xs text-muted-foreground">Performance: {emp.performanceRating || 'N/A'}</div>
                           <div className="text-xs text-muted-foreground">Completed Training: {emp.completedTraining?.join(', ') || 'None'}</div>
                           {/* HR Actions */}
@@ -1361,7 +1521,42 @@ export function ARISEnhancedDashboard() {
                               <Send className="h-4 w-4 mr-1" />
                               Send Shortlist Email
                             </Button>
-                            <Button size="sm" variant="secondary" onClick={() => {/* TODO: Attach training plan */}}>
+                            <Button size="sm" variant="secondary" onClick={async () => {
+                              if (!emp.email) {
+                                toast({ title: 'Error', description: 'Employee email not available', variant: 'destructive' });
+                                return;
+                              }
+                              
+                              // Generate training plan based on employee skills
+                              const trainingPlan = emp.skills?.map((skillObj: any) => {
+                                const training = getBestTrainingResourceForSkill(skillObj.skill);
+                                return `${skillObj.skill}: ${training.name} (${training.provider}) - ${training.url}`;
+                              }).join('\n') || 'Custom training plan will be provided based on role requirements.';
+                              
+                              const subject = `Training Plan - ${emp.promotionRole || 'Skill Development'}`;
+                              const message = `Dear ${emp.name},\n\nHere is your personalized training plan:\n\n${trainingPlan}\n\nPlease review and start with the recommended courses. Contact HR for any questions.\n\nBest regards,\nHR Team`;
+                              
+                              try {
+                                const response = await fetch('/api/email', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ 
+                                    to: emp.email, 
+                                    subject, 
+                                    message,
+                                    type: 'training_plan',
+                                    data: {
+                                      employeeName: emp.name,
+                                      trainingPlan: trainingPlan,
+                                      hrTeamName: 'HR Team'
+                                    }
+                                  })
+                                });
+                                toast({ title: 'Training Plan Sent', description: `Training plan sent to ${emp.name}` });
+                              } catch {
+                                toast({ title: 'Error', description: 'Failed to send training plan', variant: 'destructive' });
+                              }
+                            }}>
                               <FileText className="h-4 w-4 mr-1" />
                               Attach Training Plan
                             </Button>
@@ -1378,12 +1573,9 @@ export function ARISEnhancedDashboard() {
                         </CardContent>
                       </Card>
                     ))}
-                    {employees.filter((emp: PromotionCandidate) => emp.isPromotionCandidate).length === 0 && (
-                      <p className="text-muted-foreground text-sm">No candidates identified for promotion/upskilling.</p>
-                    )}
                   </div>
                 ) : (
-                  <p className="text-muted-foreground text-sm">Import employee data to enable career path modeling.</p>
+                  <p className="text-muted-foreground text-sm">No eligible employees found for this job role.</p>
                 )}
               </div>
             </CardContent>
