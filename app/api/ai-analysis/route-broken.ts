@@ -165,7 +165,7 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
       throw new Error('Unable to fetch employee data from database. Please ensure the database is accessible.')
     }
   }
-          availability: 'Available',
+          /*availability: 'Available',
           experience: '3+ years',
           currentProjects: 2,
           completedProjects: 8,
@@ -263,7 +263,7 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
       
       console.log(`📦 Using hardcoded fallback: ${employees.length} employees`)
     }
-  }
+  }*/
 
     console.log(`🔍 Analyzing ${employees.length} employees for ${requiredSkills.length} required skills`)
     console.log('Required skills:', requiredSkills)
