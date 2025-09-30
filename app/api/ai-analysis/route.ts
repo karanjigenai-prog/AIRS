@@ -36,6 +36,28 @@ const skillLevelMap: { [key: string]: number } = {
   'expert': 3
 }
 
+function normalizeLevel(raw: any): 'beginner' | 'intermediate' | 'expert' {
+  if (!raw || typeof raw !== 'string') return 'beginner'
+  const s = raw.toLowerCase().trim()
+  if (s.includes('expert') || s.includes('senior') || s.includes('lead') || /\b(6|7|8|9|10)\+?\s*years?\b/.test(s)) return 'expert'
+  if (s.includes('intermediate') || s.includes('mid') || s.includes('associate') || /\b(3|4|5)\s*years?\b/.test(s)) return 'intermediate'
+  if (s.includes('beginner') || s.includes('junior') || s.includes('fresher') || /\b(0|1|2)\s*years?\b/.test(s)) return 'beginner'
+  // Fallback: map vague levels to intermediate to avoid underestimating matches
+  return 'intermediate'
+}
+
+function normalizeAvailability(raw: any, pct?: number): 'Available' | 'Busy' {
+  // Allocation percentage takes precedence if provided
+  if (typeof pct === 'number') {
+    return pct > 0 ? 'Busy' : 'Available'
+  }
+  if (!raw) return 'Available'
+  const s = String(raw).toLowerCase().trim()
+  if (['available', 'bench', 'unassigned', 'free'].some(k => s.includes(k))) return 'Available'
+  if (['busy', 'allocated', 'on project', 'engaged', 'assigned'].some(k => s.includes(k))) return 'Busy'
+  return 'Available'
+}
+
 function calculateSkillMatch(requiredSkills: any[], employeeSkills: any[]): number {
   if (!requiredSkills || !employeeSkills || requiredSkills.length === 0) return 0
   
@@ -43,18 +65,21 @@ function calculateSkillMatch(requiredSkills: any[], employeeSkills: any[]): numb
   let totalRequired = requiredSkills.length
   
   for (const required of requiredSkills) {
-    const employeeSkill = employeeSkills.find((empSkill: any) => 
-      empSkill.skill?.toLowerCase() === required.skill?.toLowerCase()
-    )
+    const requiredSkillName = required.skill?.toLowerCase()?.trim()
+    const requiredLevel = normalizeLevel(required.level)
+    const employeeSkill = employeeSkills.find((empSkill: any) => {
+      const empSkillName = empSkill.skill?.toLowerCase()?.trim()
+      return empSkillName === requiredSkillName
+    })
     
     if (employeeSkill) {
-      const requiredLevel = skillLevelMap[required.level] || 1
-      const employeeLevel = skillLevelMap[employeeSkill.level] || 1
+      const employeeLevel = skillLevelMap[normalizeLevel(employeeSkill.level)] || 1
+      const requiredLevelNum = skillLevelMap[requiredLevel] || 1
       
-      if (employeeLevel >= requiredLevel) {
+      if (employeeLevel >= requiredLevelNum) {
         totalMatch += 1 // Full match
       } else {
-        totalMatch += employeeLevel / requiredLevel // Partial match
+        totalMatch += employeeLevel / requiredLevelNum // Partial match
       }
     }
   }
@@ -112,9 +137,30 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
           category: skill.skill_category
         }))
 
-      const allocation = (allocations || []).find((alloc: any) => alloc.employee_id === employee.employee_id)
-      const availability = allocation ? 
-        (allocation.current_allocation_percentage >= 100 ? 'Busy' : 'Available') : 'Available'
+      const empAllocs = (allocations || []).filter((alloc: any) => alloc.employee_id === employee.employee_id)
+      const today = new Date()
+      // Consider only active allocations: pct > 0 and (no end date or end date in the future), and (no start date or start date in the past)
+      const parsedAllocs = empAllocs.map((a: any) => {
+        const rawStart = a?.start_date || a?.project_start_date || a?.allocation_start_date || a?.startDate
+        const rawEnd = a?.end_date || a?.project_end_date || a?.allocation_end_date || a?.endDate
+        const startDate = rawStart ? new Date(rawStart) : undefined
+        const endDate = rawEnd ? new Date(rawEnd) : undefined
+        const pct = Number(a?.current_allocation_percentage) || 0
+        return { pct, startDate, endDate }
+      })
+      const activeAllocs = parsedAllocs.filter(a => {
+        const startOk = !a.startDate || (!isNaN(a.startDate.getTime()) && a.startDate <= today)
+        const endOk = !a.endDate || (!isNaN(a.endDate.getTime()) && a.endDate >= today)
+        return a.pct > 0 && startOk && endOk
+      })
+      const allocationPct: number | undefined = activeAllocs.length > 0 ? Math.max(...activeAllocs.map(a => a.pct)) : 0
+      const availability = activeAllocs.length > 0 ? 'Busy' : 'Available'
+      // Soonest upcoming end date among active allocations
+      const endDates = activeAllocs
+        .map(a => a.endDate)
+        .filter((d: Date | undefined): d is Date => !!d && !isNaN(d.getTime()))
+        .sort((a: Date, b: Date) => a.getTime() - b.getTime())
+      const allocationEndDate: string | undefined = endDates.length > 0 ? endDates[0].toISOString().split('T')[0] : undefined
 
       return {
         id: employee.employee_id,
@@ -124,6 +170,8 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
         department: employee.department,
         skills: empSkills,
         availability,
+        allocationPct,
+        allocationEndDate,
       }
     })
     .filter(emp => emp.skills && emp.skills.length > 0) // Filter out employees without skills
@@ -185,6 +233,7 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
   // First, normalize required skills for comparison
   const normalizedRequiredSkills = requiredSkills.map(skill => ({
     ...skill,
+    level: normalizeLevel(skill.level),
     skill: skill.skill?.toLowerCase()?.trim(),
     category: skill.category?.toLowerCase()?.trim() || 'general'
   }))
@@ -193,6 +242,7 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
     const employeeSkills = employee.skills || []
     const normalizedEmployeeSkills = employeeSkills.map((skill: any) => ({
       ...skill,
+      level: normalizeLevel(skill.level),
       skill: skill.skill?.toLowerCase()?.trim(),
       category: skill.category?.toLowerCase()?.trim() || 'general'
     }))
@@ -207,18 +257,52 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
       ))
       .map(skill => skill.skill)
 
-    const readinessStatus = determineReadiness(matchPercentage, missingSkills)
-    
+    // Determine readiness using allocation data first, then fallback to match-based thresholds
+    let readinessStatus: 'ready_now' | 'ready_2weeks' | 'ready_4weeks' | 'needs_hiring'
     let estimatedReadyDate = new Date().toISOString().split('T')[0]
-    
-    if (readinessStatus === 'ready_2weeks') {
-      const date = new Date()
-      date.setDate(date.getDate() + 14)
-      estimatedReadyDate = date.toISOString().split('T')[0]
-    } else if (readinessStatus === 'ready_4weeks') {
-      const date = new Date()
-      date.setDate(date.getDate() + 28)
-      estimatedReadyDate = date.toISOString().split('T')[0]
+
+    const today = new Date()
+    const endDateStr: string | undefined = (employee as any).allocationEndDate
+    const endDate = endDateStr ? new Date(endDateStr) : undefined
+    const availabilityLabel = normalizeAvailability((employee as any).availability, (employee as any).allocationPct)
+    const isAvailableNow = availabilityLabel === 'Available'
+
+    if (isAvailableNow) {
+      // Only ready now if direct skill match and the employee is actually unallocated (bench)
+      // Otherwise, they will be considered in 2/4 weeks based on end dates
+      readinessStatus = 'ready_now'
+      estimatedReadyDate = today.toISOString().split('T')[0]
+    } else if (endDate && !isNaN(endDate.getTime())) {
+      const diffDays = Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+      if (diffDays <= 14) {
+        readinessStatus = 'ready_2weeks'
+        const d = new Date(); d.setDate(today.getDate() + Math.max(0, diffDays))
+        estimatedReadyDate = d.toISOString().split('T')[0]
+      } else if (diffDays <= 28) {
+        readinessStatus = 'ready_4weeks'
+        const d = new Date(); d.setDate(today.getDate() + Math.max(0, diffDays))
+        estimatedReadyDate = d.toISOString().split('T')[0]
+      } else {
+        // Longer than 4 weeks; use skill match to decide if trainable bucket should be considered
+        readinessStatus = determineReadiness(matchPercentage, missingSkills)
+        if (readinessStatus === 'ready_2weeks') {
+          const d = new Date(); d.setDate(today.getDate() + 14)
+          estimatedReadyDate = d.toISOString().split('T')[0]
+        } else if (readinessStatus === 'ready_4weeks') {
+          const d = new Date(); d.setDate(today.getDate() + 28)
+          estimatedReadyDate = d.toISOString().split('T')[0]
+        }
+      }
+    } else {
+      // No allocation data; fallback to skill match thresholds
+      readinessStatus = determineReadiness(matchPercentage, missingSkills)
+      if (readinessStatus === 'ready_2weeks') {
+        const d = new Date(); d.setDate(today.getDate() + 14)
+        estimatedReadyDate = d.toISOString().split('T')[0]
+      } else if (readinessStatus === 'ready_4weeks') {
+        const d = new Date(); d.setDate(today.getDate() + 28)
+        estimatedReadyDate = d.toISOString().split('T')[0]
+      }
     }
 
     const resourceMatch: ResourceMatch = {
@@ -232,7 +316,7 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
       currentSkills: employeeSkills,
       trainingNeeded: missingSkills,
       estimatedReadyDate,
-      availability: employee.availability || 'Available',
+      availability: availabilityLabel,
       experience: employee.experience || '',
       currentProjects: employee.currentProjects || 0,
       completedProjects: employee.completedProjects || 0
@@ -250,6 +334,13 @@ async function analyzeSkillRequest(requestId: string, requiredSkills: any[], tea
     if (hasDirectMatch && readinessStatus === 'ready_now') {
       directSkillEmployees.push(resourceMatch)
       readyNow.push(resourceMatch)
+    } else if (hasDirectMatch) {
+      // Direct skill match but not available now; bucket purely by allocation-based readiness
+      if (readinessStatus === 'ready_2weeks') {
+        ready2Weeks.push(resourceMatch)
+      } else if (readinessStatus === 'ready_4weeks') {
+        ready4Weeks.push(resourceMatch)
+      }
     } else {
       // If not direct match, check for similar/related skills (basic similarity: same category or partial match)
       const hasSimilar = normalizedRequiredSkills.some(required =>

@@ -347,7 +347,10 @@ export function ARISEnhancedDashboard() {
           title: "Success",
           description: "Skill request created successfully"
         })
-        
+        // Add new request to local skillRequests state for immediate UI update
+        if (skillRequestsData?.requests) {
+          skillRequestsData.requests.unshift(result.request);
+        }
         // Reset form
         setNewRequest({
           clientName: '',
@@ -360,7 +363,6 @@ export function ARISEnhancedDashboard() {
           priority: 'medium',
           skills: []
         })
-        
         // Refresh data
         mutateSkillRequests()
       } else {
