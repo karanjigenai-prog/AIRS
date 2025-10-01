@@ -198,24 +198,20 @@ async function sendEmailReal(to: string, subject: string, htmlContent: string, t
       },
       to,
       subject,
-      text: textContent,
       html: htmlContent,
-      // Enhanced headers for better deliverability
+      // Clean headers for proper HTML delivery
       headers: {
         'X-Mailer': 'ARIS HR Intelligence System v1.0',
         'X-Priority': '3',
         'Importance': 'normal',
         'Return-Path': EMAIL_CONFIG.FROM_EMAIL,
         'Reply-To': EMAIL_CONFIG.FROM_EMAIL,
-        'X-Auto-Response-Suppress': 'OOF, DR, RN, NRN',
         'Organization': 'ARIS HR Intelligence System',
-        'X-Entity-Ref-ID': `aris-${Date.now()}`,
         'Message-ID': `<${Date.now()}.${Math.random().toString(36).substr(2, 9)}@gmail.com>`,
         'Date': new Date().toUTCString(),
         'MIME-Version': '1.0',
         'Content-Type': 'text/html; charset=UTF-8'
       },
-      // Enhanced delivery options
       envelope: {
         from: EMAIL_CONFIG.FROM_EMAIL,
         to: to
