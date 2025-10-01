@@ -13,7 +13,7 @@
  * - Focus on core HR functionality
  */
 
-import React from "react"
+import React, { useRef } from "react"
 import { TrendsInsights } from "../app/employee-dashboard/components/trends-insights"
 import useSWR from "swr"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
@@ -104,6 +104,7 @@ interface ResourceMatch {
 }
 
 export function ARISEnhancedDashboard() {
+  const emailCommRef = useRef<HTMLDivElement>(null);
   // State for career requirements file upload
   const [careerFile, setCareerFile] = React.useState<File | null>(null);
   const handleCareerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -275,7 +276,8 @@ export function ARISEnhancedDashboard() {
     to: '',
     subject: '',
     message: '',
-    type: 'general'
+    type: 'general',
+    data: {}
   })
   const [isSendingEmail, setIsSendingEmail] = React.useState(false)
 
@@ -481,52 +483,74 @@ export function ARISEnhancedDashboard() {
         title: "Missing Information",
         description: "Please fill in all email fields",
         variant: "destructive"
-      })
-      return
+      });
+      return;
+    }
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailData.to)) {
+      toast({
+        title: "Invalid Email",
+        description: "Please enter a valid email address.",
+        variant: "destructive"
+      });
+      return;
     }
 
-    setIsSendingEmail(true)
+    setIsSendingEmail(true);
     try {
       const response = await fetch('/api/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(emailData)
-      })
+        body: JSON.stringify({
+          to: emailData.to,
+          subject: emailData.subject,
+          message: emailData.message,
+          type: emailData.type || 'general',
+          data: emailData.data || {}
+        })
+      });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorResult = await response.json();
+        toast({
+          title: "Email Failed",
+          description: errorResult.error || `Failed to send email (status ${response.status})`,
+          variant: "destructive"
+        });
+        throw new Error(errorResult.error || `HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json()
+      const result = await response.json();
 
       if (result.success) {
         toast({
           title: "Email Sent",
           description: `Email sent successfully via ${result.provider}`
-        })
-        
+        });
         // Reset form
         setEmailData({
           to: '',
           subject: '',
           message: '',
-          type: 'general'
-        })
+          type: 'general',
+          data: {}
+        });
       } else {
         toast({
           title: "Email Failed",
           description: result.error || "Failed to send email",
           variant: "destructive"
-        })
+        });
       }
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to send email",
+        description: error instanceof Error ? error.message : "Failed to send email",
         variant: "destructive"
-      })
+      });
     } finally {
-      setIsSendingEmail(false)
+      setIsSendingEmail(false);
     }
   }
 
@@ -556,72 +580,70 @@ export function ARISEnhancedDashboard() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      
-
+    <div className="space-y-8 px-2 md:px-6 py-4">
       {/* Main Tabs */}
-      <Tabs value={activeTab} onValueChange={(value: string) => setActiveTab(value as any)}>
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="requests">Competency Mapping</TabsTrigger>
-          <TabsTrigger value="workforce">Career Path Modeling</TabsTrigger>
-          <TabsTrigger value="trends">Trends & Insights</TabsTrigger>
-          <TabsTrigger value="import">Employee Directory</TabsTrigger>
-        </TabsList>
-        {/* Trends & Insights Tab (Charts) */}
-        <TabsContent value="trends" className="space-y-6">
-          <TrendsInsights />
-        </TabsContent>
+      <div className="rounded-xl shadow-lg bg-white/90 border border-blue-100 p-4 md:p-6">
+        <Tabs value={activeTab} onValueChange={(value: string) => setActiveTab(value as any)}>
+          <TabsList className="grid w-full grid-cols-5 mb-4 rounded-lg bg-gray-50 p-2 shadow">
+            <TabsTrigger value="overview" className="font-semibold text-base">Overview</TabsTrigger>
+            <TabsTrigger value="requests" className="font-semibold text-base">Competency Mapping</TabsTrigger>
+            <TabsTrigger value="workforce" className="font-semibold text-base">Career Path Modeling</TabsTrigger>
+            <TabsTrigger value="trends" className="font-semibold text-base">Trends & Insights</TabsTrigger>
+            <TabsTrigger value="import" className="font-semibold text-base">Employee Directory</TabsTrigger>
+          </TabsList>
 
-        {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-6">
-          {/* Metrics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card>
-              <CardContent className="flex items-center p-6">
-                <Users className="h-8 w-8 text-blue-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-muted-foreground">Total Employees</p>
-                  <p className="text-2xl font-bold">{employees.length}</p>
-                  {employees.length === 0 && (
-                    <p className="text-xs text-muted-foreground mt-1">Import data to get started</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardContent className="flex items-center p-6">
-                <CheckCircle className="h-8 w-8 text-green-600" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-muted-foreground">Available</p>
-                  <p className="text-2xl font-bold">
-                    {employees.filter((emp: any) => emp.availability === 'Available').length}
+          {/* Trends & Insights Tab (Charts) */}
+          <TabsContent value="trends" className="space-y-6">
+            <TrendsInsights />
+          </TabsContent>
+
+          {/* Overview Tab */}
+          <TabsContent value="overview" className="space-y-8">
+            {/* Metrics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="rounded-2xl shadow-xl bg-gradient-to-r from-blue-500 via-indigo-400 to-purple-400 text-white">
+                <CardContent className="flex items-center p-6">
+                  <Users className="h-8 w-8 text-white drop-shadow-lg" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-white/80">Total Employees</p>
+                    <p className="text-2xl font-bold text-white">{employees.length}</p>
+                    {employees.length === 0 && (
+                      <p className="text-xs text-white/70 mt-1">Import data to get started</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="rounded-2xl shadow-xl bg-gradient-to-r from-green-400 via-blue-400 to-purple-400 text-white">
+                <CardContent className="flex items-center p-6">
+                  <CheckCircle className="h-8 w-8 text-white drop-shadow-lg" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-white/80">Available</p>
+                    <p className="text-2xl font-bold text-white">
+                      {employees.filter((emp: any) => emp.availability === 'Available').length}
                   </p>
                   {employees.length === 0 && (
-                    <p className="text-xs text-muted-foreground mt-1">No data available</p>
+                    <p className="text-xs text-white/70 mt-1">No data available</p>
                   )}
                 </div>
               </CardContent>
             </Card>
             
-            <Card>
+            <Card className="rounded-2xl shadow-xl bg-gradient-to-r from-orange-400 via-pink-400 to-purple-400 text-white">
               <CardContent className="flex items-center p-6">
-                <FileText className="h-8 w-8 text-orange-600" />
+                <FileText className="h-8 w-8 text-white drop-shadow-lg" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-muted-foreground">Active Requests</p>
-                  <p className="text-2xl font-bold">{skillRequests.length}</p>
+                  <p className="text-sm font-medium text-white/80">Active Requests</p>
+                  <p className="text-2xl font-bold text-white">{skillRequests.length}</p>
                 </div>
               </CardContent>
             </Card>
             
-            <Card>
+            <Card className="rounded-2xl shadow-xl bg-gradient-to-r from-purple-400 via-blue-400 to-green-400 text-white">
               <CardContent className="flex items-center p-6">
-                <TrendingUp className="h-8 w-8 text-purple-600" />
+                <TrendingUp className="h-8 w-8 text-white drop-shadow-lg" />
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-muted-foreground">In Analysis</p>
-                  <p className="text-2xl font-bold">
+                  <p className="text-sm font-medium text-white/80">In Analysis</p>
+                  <p className="text-2xl font-bold text-white">
                     {skillRequests.filter((req: any) => req.status === 'analyzing').length}
                   </p>
                 </div>
@@ -649,34 +671,34 @@ export function ARISEnhancedDashboard() {
               </CardContent>
             </Card>
           ) : (
-            <Card>
+            <Card className="rounded-2xl shadow-xl bg-gradient-to-r from-blue-500 via-indigo-400 to-purple-400 text-white">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
+                  <Activity className="h-5 w-5 text-white drop-shadow-lg" />
                   Recent Skill Requests
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {skillRequests.slice(0, 3).map((request: SkillRequest) => (
-                    <div key={request.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div key={request.id} className="flex items-center justify-between p-3 rounded-lg bg-white/10">
                       <div>
-                        <p className="font-medium">{request.projectName}</p>
-                        <p className="text-sm text-muted-foreground">{request.clientName}</p>
-                        <p className="text-xs text-muted-foreground">Team Size: {request.teamSizeRequired}</p>
+                        <p className="font-medium text-white">{request.projectName}</p>
+                        <p className="text-sm text-white/80">{request.clientName}</p>
+                        <p className="text-xs text-white/70">Team Size: {request.teamSizeRequired}</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge className={getPriorityColor(request.priority)}>
+                        <Badge className={getPriorityColor(request.priority) + ' bg-white/20 text-white font-bold'}>
                           {request.priority}
                         </Badge>
-                        <Badge className={getStatusColor(request.status)}>
+                        <Badge className={getStatusColor(request.status) + ' bg-white/20 text-white font-bold'}>
                           {request.status.replace('_', ' ')}
                         </Badge>
                       </div>
                     </div>
                   ))}
                   {skillRequests.length === 0 && (
-                    <p className="text-center text-muted-foreground py-4">
+                    <p className="text-center text-white/80 py-4">
                       No skill requests found. Create one to get started.
                     </p>
                   )}
@@ -946,10 +968,16 @@ export function ARISEnhancedDashboard() {
                             setEmailData({
                               to: request.clientEmail!,
                               subject: `Update on ${request.projectName}`,
-                              message: `Dear ${request.clientName},\n\nWe wanted to provide you with an update on your project "${request.projectName}".\n\nBest regards,\nARIS Team`,
-                              type: 'general'
-                            })
-                            setActiveTab('workforce') // Use workforce tab for email
+                              message: `Dear ${request.clientName},\n\nWe wanted to provide you with an update on your project \"${request.projectName}\".\n\nBest regards,\nARIS Team`,
+                              type: 'general',
+                              data: {}
+                            });
+                            setActiveTab('requests');
+                            setTimeout(() => {
+                              if (emailCommRef.current) {
+                                emailCommRef.current.scrollIntoView({ behavior: 'smooth' });
+                              }
+                            }, 100);
                           }}
                         >
                           <Mail className="h-4 w-4 mr-2" />
@@ -971,7 +999,7 @@ export function ARISEnhancedDashboard() {
             </CardContent>
           </Card>
           {/* Email Communication */}
-          <Card>
+          <Card ref={emailCommRef}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Mail className="h-5 w-5" />
@@ -1645,6 +1673,7 @@ export function ARISEnhancedDashboard() {
           </Card>
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   )
 }

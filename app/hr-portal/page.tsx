@@ -19,38 +19,34 @@ export default function HRPortal() {
 
   return (
     <main className="font-sans px-4 py-6 md:px-8 max-w-7xl mx-auto min-h-screen">
-      <header className="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 mb-2">
-            <Brain className="h-8 w-8 text-blue-600" />
-            <h1 className="text-2xl md:text-3xl font-semibold text-pretty">
-              ARIS — AI Resource Intelligence System
-            </h1>
-            <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-              HR Portal
-            </Badge>
+      <header className="mb-8">
+        <div className="rounded-2xl shadow-xl bg-gradient-to-r from-blue-500 via-indigo-400 to-purple-400 p-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-6">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-4 mb-2">
+              <span className="inline-flex items-center justify-center rounded-full bg-white p-2 shadow-lg animate-pulse">
+                <Brain className="h-10 w-10 text-blue-500 drop-shadow-lg" />
+              </span>
+              <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight drop-shadow-lg">
+                ARIS — AI Resource Intelligence System
+              </h1>
+              <Badge variant="secondary" className="bg-white text-blue-700 font-bold text-base px-3 py-1 rounded-full shadow">
+                HR Portal
+              </Badge>
+            </div>
+            <p className="text-white/90 text-lg md:text-xl font-semibold drop-shadow">
+              <span className="font-bold">Workforce Intelligence Platform</span><br />
+              <span className="text-white/80">Manage employees, skill requests, and AI analysis with full HR access.</span>
+            </p>
           </div>
-          <p className="text-muted-foreground text-sm md:text-base">
-            <strong>Workforce Intelligence Platform</strong><br />
-            Manage employees, skill requests, and AI analysis with full HR access.
-          </p>
-        </div>
-        <div className="shrink-0 flex gap-2 items-center">
-          <ThemeToggle />
-          <button
-            onClick={handleSignOut}
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '6px',
-              background: '#7744efff',
-              color: 'white',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: 500
-            }}
-          >
-            Sign Out
-          </button>
+          <div className="shrink-0 flex gap-3 items-center">
+            <ThemeToggle />
+            <button
+              onClick={handleSignOut}
+              className="px-6 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-bold shadow-lg hover:scale-105 transition-all duration-150 border-none focus:outline-none"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </header>
 
